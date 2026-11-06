@@ -176,31 +176,117 @@ def ler_danfe(pdf_bytes):
     return itens, sorted(chaves), texto_completo
 
 
+# Regras operacionais: somente acessórios físicos, nunca refis ou fragrâncias.
+# A presença de "REFIL", "LIQUIDO" etc. prevalece sobre a palavra "DIFUSOR".
+VARIANTES_PORCELANA = ("LAVANDA", "ORQUIDEA", "CAMELIA", "BORBOLETA", "PASSAROS", "LOTUS", "TULIPA", "CHA BRANCO", "COSTELA DE ADAO")
+VARIANTES_CRISTAL = ("PROTEA", "BROMELIA")
+PALAVRAS_CONTEUDO = ("REFIL", "ESSENCIA", "FRAGRANCIA", "PERFUME", "LIQUIDO", "AROMATIZADOR", "OLEO", "SPRAY", "AEROSSOL", "290ML", "15G")
+UTENSILIOS_SOLIDOS = (
+    "PRATO", "PRATOS", "TALHER", "GARFO", "COLHER", "XICARA", "TRAVESSA",
+    "PIRES", "CANECA", "TACA", "COPO", "BANDEJA", "NECESSAIRE",
+    "PORTA RETRATO", "PORTA GUARDANAPO", "VASO", "SOUSPLAT",
+)
+POTENCIAL_FDS = ("SABONETE", "HIDRATANTE", "DESODORANTE", "DEO ", "VELA", "DIFUSOR", "REFIL", "PERFUME", "FRAGRANCIA", "ESSENCIA", "SPRAY", "AROMATIZADOR", "OLEO", "ALCOOL", "COSMETICO")
+
+
+def regra_acessorio(descricao):
+    d = norm(descricao).upper()
+    d = re.sub(r"\s+", " ", d)
+    if any(termo in d for termo in PALAVRAS_CONTEUDO):
+        return None
+    if "DIFUSOR PARA CARRO" in d:
+        # DANFEs da TB podem abreviar a descrição antes da cor.
+        return "Difusor para carro (acessório físico, sem refil)"
+    if "DIFUSOR DE PORCELANA" in d:
+        return "Difusor de porcelana (acessório físico, sem refil)"
+    if "DIFUSOR DE CRISTAL" in d:
+        return "Difusor de cristal (acessório físico, sem refil)"
+    return None
+
+
+def regra_utensilio(descricao):
+    d = norm(descricao).upper()
+    if any(termo in d for termo in PALAVRAS_CONTEUDO):
+        return None
+    # Evita falsos positivos de fragmentos como "copo" dentro de outra palavra.
+    if any(re.search(r"\b" + re.escape(t) + r"\b", d) for t in UTENSILIOS_SOLIDOS):
+        return "Utensílio/acessório comum, sem conteúdo químico declarado"
+    return None
+
+
+def assinatura_produto(descricao):
+    """Nome-base sem embalagem/volume, preservando família, fragrância e formulação."""
+    d = norm(descricao).upper()
+    d = re.sub(r"\b(?:KIT|CONJUNTO|PACK|COMBO|ESTOJO|CAIXA|CX)\b", " ", d)
+    d = re.sub(r"\b\d+(?:[.,]\d+)?\s*(?:ML|LITROS?|LTS?|LT|KG|GR|GRAMAS?|G|UNIDADES?|UN|PCS|PECAS?)\b", " ", d)
+    d = re.sub(r"\b(?:C/|COM)\s*\d+\b", " ", d)
+    d = re.sub(r"[^A-Z0-9 ]", " ", d)
+    return " ".join(d.split())
+
+
+def possivel_kit(descricao):
+    d = norm(descricao).upper()
+    return bool(re.search(r"\b(KIT|CONJUNTO|PACK|COMBO|ESTOJO)\b|\b\d+\s*(?:PCS|PECAS|UNIDADES|UN)\b", d))
+
+
+def status_consensual(registros):
+    validos = [r for r in registros if r["STATUS"] in ("NOR", "DG")]
+    classes = {r["STATUS"] for r in validos}
+    return (next(iter(classes)), validos[0]["DESCRICAO"]) if len(classes) == 1 else (None, "")
+
+
 def classificar(itens, base):
     linhas = []
-    codigos = {}
-    for _, item in base.iterrows():
-        cod = norm(item["CODIGO"]).replace(" ", "")
-        if cod:
-            codigos.setdefault(cod, []).append(item)
+    codigos, descricoes, familias = {}, {}, {}
+    for _, item_base in base.iterrows():
+        codigo = norm(item_base["CODIGO"]).replace(" ", "")
+        desc = norm(item_base["DESCRICAO"])
+        if codigo:
+            codigos.setdefault(codigo, []).append(item_base)
+        descricoes.setdefault(desc, []).append(item_base)
+        familias.setdefault(assinatura_produto(desc), []).append(item_base)
+
     for item in itens:
-        chave = norm(item["Código NF"]).replace(" ", "")
-        opcoes = codigos.get(chave, [])
-        if len(opcoes) == 1 and opcoes[0]["STATUS"] in ("NOR", "DG"):
-            status = opcoes[0]["STATUS"]
-            descricao_base = opcoes[0]["DESCRICAO"]
-            metodo = "Código exato"
+        codigo = norm(item["Código NF"]).replace(" ", "")
+        desc = norm(item["Descrição NF"])
+        status, descricao_base = "REVISAR", ""
+        metodo = "Produto sem classificação segura: verificar composição/FDS quando aplicável"
+        por_codigo = [r for r in codigos.get(codigo, []) if r["STATUS"] in ("NOR", "DG")]
+        classe_codigo, desc_codigo = status_consensual(por_codigo)
+        acessorio = regra_acessorio(desc)
+        utensilio = regra_utensilio(desc)
+        kit = possivel_kit(desc)
+
+        if classe_codigo:
+            status, descricao_base, metodo = classe_codigo, desc_codigo, "Código exato da base"
+            if status == "DG" and (acessorio or utensilio):
+                status, metodo = "REVISAR", "Conflito: código DG e descrição de acessório/utensílio"
+        elif por_codigo:
+            metodo = "Conflito: mesmo código possui NOR e DG na base"
         else:
-            # Somente correspondência de descrição exata e única; nunca usar
-            # aproximação textual para liberar automaticamente um embarque.
-            desc = norm(item["Descrição NF"])
-            iguais = base[base["DESCRICAO"].map(norm) == desc]
-            if len(iguais) == 1 and iguais.iloc[0]["STATUS"] in ("NOR", "DG"):
-                status = iguais.iloc[0]["STATUS"]
-                descricao_base = iguais.iloc[0]["DESCRICAO"]
-                metodo = "Descrição exata"
+            iguais = [r for r in descricoes.get(desc, []) if r["STATUS"] in ("NOR", "DG")]
+            classe_exata, desc_exata = status_consensual(iguais)
+            if classe_exata:
+                status, descricao_base, metodo = classe_exata, desc_exata, "Descrição exata da base"
+            elif iguais:
+                metodo = "Conflito: descrição idêntica com classificações diferentes"
+            elif acessorio:
+                status, metodo = "NOR", "Acessório físico: " + acessorio
+            elif utensilio:
+                status, metodo = "NOR", "Utensílio/acessório: " + utensilio
+            elif kit:
+                # Não inferir que um kit é seguro com base em apenas um componente.
+                metodo = "KIT: verificar todos os componentes; uma correspondência isolada não libera o conjunto"
             else:
-                status, descricao_base, metodo = "REVISAR", "", "Não identificado com segurança"
+                familia = familias.get(assinatura_produto(desc), [])
+                classe_familia, desc_familia = status_consensual(familia)
+                if classe_familia:
+                    status, descricao_base = classe_familia, desc_familia
+                    metodo = "Família do produto na base (volume/peso/quantidade diferente; classificação unânime)"
+                elif familia:
+                    metodo = "Família encontrada, mas há classificações NOR e DG diferentes: verificar FDS"
+                elif not any(t in desc.upper() for t in POTENCIAL_FDS):
+                    metodo = "Produto não cadastrado: confirmar natureza antes da liberação"
         linhas.append({**item, "Classificação": status, "Descrição na base": descricao_base, "Identificação": metodo})
     return pd.DataFrame(linhas)
 
@@ -275,19 +361,45 @@ with aba_nf:
             st.warning(f"⚠️ {total_pendentes} documento(s) com pendência, falha ou chave não identificada. Conferência manual obrigatória.")
         if not total_dg and not total_pendentes:
             st.info("Os itens extraídos foram classificados como NOR. Confira se TODOS os itens das DANFEs foram lidos antes de liberar o embarque.")
+        # Pendências identificadas por número da nota fiscal e código do produto.
+        st.markdown("#### 🔎 Notas fiscais e itens para revisar")
+        if not detalhes_df.empty:
+            pendencias_df = detalhes_df[detalhes_df["Classificação"] == "REVISAR"].copy()
+        else:
+            pendencias_df = pd.DataFrame()
+        if not pendencias_df.empty:
+            colunas_pendencia = ["NF", "Série", "Código NF", "Descrição NF", "Quantidade", "Identificação", "Arquivo"]
+            st.dataframe(pendencias_df[colunas_pendencia], use_container_width=True, hide_index=True)
+            nfs_revisao = pendencias_df.groupby("NF", sort=False).size().reset_index(name="Itens para revisar")
+            st.markdown("**Pendências por NF:** " + " | ".join(
+                f"NF {linha['NF']}: {linha['Itens para revisar']} item(ns)" for _, linha in nfs_revisao.iterrows()
+            ))
+            st.download_button("⬇️ Baixar somente itens para revisar (CSV)",
+                data=pendencias_df[colunas_pendencia].to_csv(index=False).encode("utf-8-sig"),
+                file_name="tania_bulhoes_pendencias_por_nf_v14.csv", mime="text/csv")
+        else:
+            st.success("Nenhum produto extraído ficou sem classificação na base.")
+        outras_pendencias = resumo_df[
+            (resumo_df["Situação"].str.contains("PENDENTE|ERRO", regex=True))
+            & ((resumo_df["Revisar"] == 0) | (resumo_df["Situação"].str.contains("CHAVES|LEITURA|EXTRAÍDO", regex=True)))
+        ]
+        if not outras_pendencias.empty:
+            st.warning("Há notas com problemas de leitura, identificação ou conferência mesmo sem itens classificados como REVISAR.")
+            st.dataframe(outras_pendencias[["NF", "Arquivo", "Situação"]], use_container_width=True, hide_index=True)
         st.markdown("#### Resumo por nota fiscal")
         st.dataframe(resumo_df, use_container_width=True, hide_index=True)
         st.markdown("#### Produtos identificados")
+        st.caption("A coluna Identificação indica código exato, descrição, família com classificação unânime, acessórios ou necessidade de FDS. Kits mistos exigem verificação de todos os componentes.")
         if not detalhes_df.empty:
             st.dataframe(detalhes_df, use_container_width=True, hide_index=True)
         else:
             st.warning("Nenhum produto pôde ser extraído dos PDFs. Não liberar automaticamente.")
         st.download_button("⬇️ Baixar relatório consolidado (CSV)",
                            data=detalhes_df.to_csv(index=False).encode("utf-8-sig"),
-                           file_name="tania_bulhoes_conferencia_itens_v11.csv", mime="text/csv")
+                           file_name="tania_bulhoes_conferencia_itens_v14.csv", mime="text/csv")
         st.download_button("⬇️ Baixar resumo por NF (CSV)",
                            data=resumo_df.to_csv(index=False).encode("utf-8-sig"),
-                           file_name="tania_bulhoes_resumo_notas_v11.csv", mime="text/csv")
+                           file_name="tania_bulhoes_resumo_notas_v13.csv", mime="text/csv")
         for i, resumo in enumerate(resumos):
             with st.expander(f"📄 {resumo['Arquivo']} — {resumo['Situação']}"):
                 st.write(f"**NF:** {resumo['NF']}  |  **Série:** {resumo['Série']}  |  **Itens extraídos:** {resumo['Itens extraídos']}")
@@ -298,7 +410,7 @@ with aba_nf:
                     if not desta_nf.empty:
                         st.dataframe(desta_nf, use_container_width=True, hide_index=True)
                 st.text_area("Texto extraído (auditoria)", auditoria[i][1][:20000], height=160, key=f"audit_{i}")
-        st.caption("A extração é experimental e foi calibrada para o modelo de DANFE enviado. PDFs digitalizados, outros layouts e notas multipágina exigem conferência de todos os itens. A base NOR/DG é uma referência operacional.")
+        st.caption("A extração é experimental e foi calibrada para o modelo de DANFE enviado. PDFs digitalizados, outros layouts e notas multipágina exigem conferência de todos os itens. A base NOR/DG é uma referência operacional. Difusores físicos sem refil e utensílios comuns podem receber NOR por regra; refis e produtos químicos exigem análise da base/FDS.")
 
 with aba_produtos:
     st.write("")
