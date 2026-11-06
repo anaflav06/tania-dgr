@@ -8,6 +8,12 @@ import fitz
 import base64
 import gzip
 from pathlib import Path
+import requests
+import json
+import hashlib
+import hmac
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 st.set_page_config(page_title="Azul Logística | Tania Bulhões • Conferência em lote", page_icon="🔎", layout="wide", initial_sidebar_state="collapsed")
 BASE_INTERNA_GZIP_B64 = "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"
@@ -77,7 +83,7 @@ html,body,[class*="css"], [data-testid="stApp"] {font-family:Inter,Arial,sans-se
 ''', unsafe_allow_html=True)
 
 st.markdown(f'''<div class="brandbar"><div><div class="brand-label">OPERADOR LOGÍSTICO</div><div class="brand azul"><img src="{LOGO_AZUL}" alt="Azul Logística"></div></div><div><div class="brand-label">CLIENTE</div><div class="brand tania"><img src="{LOGO_TANIA}" alt="Tania Bulhões"></div></div></div>''', unsafe_allow_html=True)
-st.markdown('''<div class="hero"><div class="eyebrow">CONTROLE OPERACIONAL • CONSULTA DE PRODUTOS</div><h1>Conferência de Produtos NOR / DG • V16</h1><p>Analise uma ou várias DANFEs em PDF e confira a classificação dos produtos da Tania Bulhões antes do embarque.</p></div>''',unsafe_allow_html=True)
+st.markdown('''<div class="hero"><div class="eyebrow">CONTROLE OPERACIONAL • CONSULTA DE PRODUTOS</div><h1>Conferência de Produtos NOR / DG • V17</h1><p>Analise uma ou várias DANFEs em PDF e confira a classificação dos produtos da Tania Bulhões antes do embarque.</p></div>''',unsafe_allow_html=True)
 
 try:
     df = pd.read_csv(io.BytesIO(gzip.decompress(base64.b64decode(BASE_INTERNA_GZIP_B64))), dtype=str, keep_default_na=False, encoding="utf-8-sig")
@@ -250,6 +256,110 @@ def status_consensual(registros):
     return (next(iter(classes)), validos[0]["DESCRICAO"]) if len(classes) == 1 else (None, "")
 
 
+# Persistência no mesmo método dos outros apps: arquivo JSON privado via GitHub API.
+# Configurar GITHUB_TOKEN, GITHUB_REPO, ADMIN_PASSWORD em Streamlit Secrets.
+def config_secrets():
+    try:
+        return (str(st.secrets.get("GITHUB_TOKEN", "")).strip(),
+                str(st.secrets.get("GITHUB_REPO", "")).strip(),
+                str(st.secrets.get("ADMIN_PASSWORD", "")))
+    except Exception:
+        return "", "", ""
+
+GITHUB_TOKEN, GITHUB_REPO, ADMIN_PASSWORD = config_secrets()
+DB_PATH = "dados/tania_dgr_historico_v17.json"
+
+def agora():
+    return datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(timespec="seconds")
+
+def github_api():
+    return f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DB_PATH}"
+
+def gh_headers():
+    return {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"}
+
+def ler_banco():
+    vazio = {"historico": [], "pendentes": {}, "decisoes": {}}
+    if not GITHUB_TOKEN or not GITHUB_REPO or "/" not in GITHUB_REPO:
+        raise RuntimeError("Configure GITHUB_TOKEN e GITHUB_REPO nos Secrets.")
+    r = requests.get(github_api(), headers=gh_headers(), params={"ref": "main"}, timeout=20)
+    if r.status_code == 404:
+        return vazio, None
+    r.raise_for_status()
+    obj = r.json()
+    conteudo = json.loads(base64.b64decode(obj["content"]).decode("utf-8"))
+    for k, default in vazio.items():
+        conteudo.setdefault(k, default)
+    return conteudo, obj["sha"]
+
+def atualizar_banco(operacao):
+    # Releitura + SHA do GitHub: evita sobrescrever gravações concorrentes.
+    for tentativa in range(4):
+        banco, sha = ler_banco()
+        mudou = operacao(banco)
+        if not mudou:
+            return False
+        corpo = {"message": "Atualiza histórico e classificações Tania DGR",
+                 "content": base64.b64encode(json.dumps(banco, ensure_ascii=False, separators=(",", ":")).encode()).decode(),
+                 "branch": "main"}
+        if sha:
+            corpo["sha"] = sha
+        r = requests.put(github_api(), headers=gh_headers(), json=corpo, timeout=30)
+        if r.status_code in (200, 201):
+            return True
+        if r.status_code not in (409, 422):
+            raise RuntimeError(f"Erro GitHub {r.status_code}: {r.text[:240]}")
+    raise RuntimeError("Conflito de atualização no GitHub. Tente novamente.")
+
+def chave_produto(codigo, descricao):
+    codigo = str(codigo or "").strip().upper()
+    return "COD:" + codigo if codigo else "DESC:" + norm(descricao)
+
+def registrar_eventos(eventos):
+    def op(banco):
+        existentes = {r.get("id") for r in banco["historico"]}
+        mudou = False
+        for evento in eventos:
+            if evento["id"] in existentes:
+                continue
+            banco["historico"].append(evento)
+            existentes.add(evento["id"])
+            mudou = True
+            if evento["classificacao"] == "REVISAR":
+                key = chave_produto(evento.get("codigo"), evento.get("descricao"))
+                if key not in banco["decisoes"]:
+                    pend = banco["pendentes"].setdefault(key, {
+                        "codigo": evento.get("codigo", ""), "descricao": evento.get("descricao", ""),
+                        "primeira_consulta": evento["data_hora"], "ultima_consulta": evento["data_hora"],
+                        "nfs": [], "ocorrencias": 0})
+                    pend["ultima_consulta"] = evento["data_hora"]
+                    pend["ocorrencias"] += 1
+                    if evento.get("nf") and evento["nf"] not in pend["nfs"]:
+                        pend["nfs"].append(evento["nf"])
+        return mudou
+    return atualizar_banco(op)
+
+def aplicar_decisoes(resultado, banco):
+    if resultado.empty:
+        return resultado
+    resultado = resultado.copy()
+    for idx, linha in resultado.iterrows():
+        key = chave_produto(linha.get("Código NF"), linha.get("Descrição NF"))
+        decisao = banco["decisoes"].get(key)
+        if not decisao:
+            continue
+        classe = decisao["classificacao"]
+        if linha["Classificação"] in ("NOR", "DG") and linha["Classificação"] != classe:
+            resultado.at[idx, "Classificação"] = "REVISAR"
+            resultado.at[idx, "Identificação"] = "CONFLITO: base/regra " + linha["Classificação"] + " versus cadastro admin " + classe
+        elif linha["Classificação"] == "REVISAR":
+            # Refis, kits e outros casos sensíveis exigem decisão documental.
+            if "CONFLITO" not in str(linha["Identificação"]).upper():
+                resultado.at[idx, "Classificação"] = classe
+                resultado.at[idx, "Identificação"] = "Cadastro administrativo (" + decisao.get("responsavel", "Admin") + ")"
+    return resultado
+
 def classificar(itens, base):
     linhas = []
     codigos, descricoes, familias = {}, {}, {}
@@ -324,7 +434,17 @@ def classificar(itens, base):
 
 
 st.markdown('<div class="section-title">📄 Conferência de DANFE em PDF</div><div class="section-sub">Anexe o PDF da nota fiscal. O aplicativo identifica os produtos e compara com a base NOR / DG.</div>', unsafe_allow_html=True)
-aba_nf, aba_produtos = st.tabs(["📄 Analisar DANFE (PDF)", "🔎 Consultar produtos / Base NOR-DG"])
+aba_nf, aba_produtos, aba_historico, aba_admin = st.tabs([
+    "📄 Analisar DANFE (PDF)", "🔎 Consultar produtos / Base NOR-DG",
+    "🕘 Histórico de consultas", "🔐 Produtos não cadastrados"])
+try:
+    banco_atual, _ = ler_banco()
+    banco_ok = True
+except Exception as e:
+    banco_atual = {"historico": [], "pendentes": {}, "decisoes": {}}
+    banco_ok = False
+    st.error("Banco de dados não disponível: " + str(e) + ". Consultas não serão registradas; confira os Secrets.")
+
 with aba_nf:
     arquivos = st.file_uploader(
         "Anexar DANFEs em PDF (selecione um ou vários arquivos)",
@@ -346,7 +466,7 @@ with aba_nf:
                 numero_nf = str(int(chave_pdf[25:34])) if chave_pdf else "Não identificada"
                 serie_nf = str(int(chave_pdf[22:25])) if chave_pdf else ""
                 if itens:
-                    resultado = classificar(itens, df)
+                    resultado = aplicar_decisoes(classificar(itens, df), banco_atual)
                     nor = int((resultado["Classificação"] == "NOR").sum())
                     dg = int((resultado["Classificação"] == "DG").sum())
                     revisar = int((resultado["Classificação"] == "REVISAR").sum())
@@ -375,6 +495,22 @@ with aba_nf:
                 auditoria.append((nome, "Erro na leitura: " + str(exc)))
             progresso.progress((indice + 1) / len(arquivos), text=f"Analisados {indice + 1} de {len(arquivos)} PDFs")
         progresso.empty()
+        if banco_ok:
+            eventos = []
+            for linha in registros:
+                identificador = hashlib.sha256((linha["Chave"] + "|" + linha["Arquivo"] + "|" +
+                    str(linha["Código NF"]) + "|" + str(linha["Descrição NF"]) + "|" +
+                    str(linha["Classificação"])).encode()).hexdigest()
+                eventos.append({"id": identificador, "data_hora": agora(), "origem": "DANFE PDF",
+                    "nf": linha["NF"], "arquivo": linha["Arquivo"], "codigo": linha["Código NF"],
+                    "descricao": linha["Descrição NF"], "quantidade": str(linha.get("Quantidade", "")),
+                    "classificacao": linha["Classificação"], "identificacao": linha["Identificação"]})
+            if eventos:
+                try:
+                    registrar_eventos(eventos)
+                except Exception as e:
+                    st.error("Não foi possível salvar o histórico: " + str(e))
+
         resumo_df = pd.DataFrame(resumos)
         detalhes_df = pd.DataFrame(registros)
         total_dg = int(resumo_df["DG"].sum())
@@ -467,6 +603,10 @@ with aba_produtos:
         for termo in norm(consulta).split():
             resultado=resultado[resultado.BUSCA.str.contains(termo,regex=False,na=False)]
 
+    if consulta.strip() and len(resultado)==0:
+        decisao_manual = banco_atual.get("decisoes", {}).get(chave_produto("", consulta))
+        if decisao_manual:
+            st.info("Cadastro administrativo: " + decisao_manual["classificacao"] + " — " + consulta)
     if consulta.strip():
         if len(resultado)==0:
             st.markdown('<div class="result warn"><strong>⚠️ PRODUTO NÃO ENCONTRADO</strong>Não autorize o embarque sem conferir a classificação com o responsável.</div>',unsafe_allow_html=True)
@@ -483,6 +623,25 @@ with aba_produtos:
         else:
             st.markdown(f'<div class="result info"><strong>🔎 {len(resultado)} resultados encontrados</strong>Confira a descrição e, quando disponível, o código exato. Não considere itens semelhantes como equivalentes.</div>',unsafe_allow_html=True)
 
+    if consulta.strip() and st.button("📝 Registrar esta consulta no histórico", key="registrar_busca"):
+        if not banco_ok:
+            st.error("Configure o banco de dados para registrar consultas.")
+        else:
+            eventos = []
+            selecionados = resultado.to_dict("records") if len(resultado) else [{"CODIGO": "", "DESCRICAO": consulta, "STATUS": "REVISAR"}]
+            momento = agora()
+            for item in selecionados[:100]:
+                codigo, descricao, classe = item.get("CODIGO", ""), item.get("DESCRICAO", ""), item.get("STATUS", "REVISAR")
+                chave = hashlib.sha256((momento + "|" + consulta + "|" + str(codigo) + "|" + str(descricao)).encode()).hexdigest()
+                eventos.append({"id": chave, "data_hora": momento, "origem": "Consulta manual", "nf": "",
+                    "arquivo": "", "codigo": codigo, "descricao": descricao, "quantidade": "",
+                    "classificacao": classe, "identificacao": "Pesquisa na base" if len(resultado) else "Produto não encontrado"})
+            try:
+                registrar_eventos(eventos)
+                st.success("Consulta registrada e salva no GitHub.")
+            except Exception as e:
+                st.error("Erro ao registrar: " + str(e))
+
     st.markdown('<div class="section-title">📋 Base de produtos</div>',unsafe_allow_html=True)
     left,right=st.columns([3,1],vertical_alignment="center")
     with left:
@@ -492,3 +651,80 @@ with aba_produtos:
     exibir=resultado[["STATUS","CODIGO","DESCRICAO","CATEGORIA","GRUPO"]].rename(columns={"STATUS":"Classificação","CODIGO":"Código","DESCRICAO":"Produto","CATEGORIA":"Categoria","GRUPO":"Grupo"})
     st.dataframe(exibir,hide_index=True,use_container_width=True,height=420,column_config={"Classificação":st.column_config.TextColumn(width="small"),"Produto":st.column_config.TextColumn(width="large")})
     st.markdown('<div class="note">ℹ️ A classificação NOR/DG é reproduzida da base informada. A consulta não substitui análise técnica, regras de artigos perigosos ou procedimentos de aceitação da Azul Logística. Produtos sem identificação segura devem ser encaminhados para conferência.</div>',unsafe_allow_html=True)
+
+with aba_historico:
+    st.subheader("🕘 Histórico de consultas")
+    st.caption("Registros persistidos no JSON privado do GitHub. Horários de Brasília. A mesma DANFE não é duplicada ao recarregar a página.")
+    if banco_ok:
+        historico = pd.DataFrame(banco_atual.get("historico", []))
+        if historico.empty:
+            st.info("Ainda não há consultas registradas.")
+        else:
+            opcoes = ["Todos", "NOR", "DG", "REVISAR"]
+            filtro_h = st.selectbox("Filtrar classificação", opcoes, key="hist_filtro")
+            if filtro_h != "Todos":
+                historico = historico[historico["classificacao"] == filtro_h]
+            colunas = ["data_hora", "origem", "nf", "codigo", "descricao", "quantidade", "classificacao", "identificacao"]
+            st.dataframe(historico.reindex(columns=colunas).iloc[::-1], hide_index=True, use_container_width=True)
+            st.download_button("⬇️ Exportar histórico (CSV)", historico.to_csv(index=False).encode("utf-8-sig"),
+                               "historico_tania_dgr.csv", "text/csv")
+
+with aba_admin:
+    st.subheader("🔐 Produtos não cadastrados — Administração")
+    if not ADMIN_PASSWORD:
+        st.error("Defina ADMIN_PASSWORD no Streamlit Secrets antes de utilizar esta aba.")
+    elif not st.session_state.get("admin_autenticado", False):
+        with st.form("login_admin"):
+            senha = st.text_input("Senha administrativa", type="password")
+            entrar = st.form_submit_button("Entrar")
+        if entrar:
+            if hmac.compare_digest(senha, ADMIN_PASSWORD):
+                st.session_state["admin_autenticado"] = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta.")
+    else:
+        if st.button("Sair do acesso administrativo"):
+            st.session_state["admin_autenticado"] = False
+            st.rerun()
+        st.caption("Cadastros são gravados no GitHub. A decisão manual exige verificação técnica e FDS quando aplicável.")
+        pendentes = banco_atual.get("pendentes", {})
+        decisoes = banco_atual.get("decisoes", {})
+        abertos = [(k, v) for k, v in pendentes.items() if k not in decisoes]
+        st.metric("Produtos aguardando classificação", len(abertos))
+        if not abertos:
+            st.success("Nenhum produto aguardando cadastro.")
+        else:
+            exibicao = pd.DataFrame([{"Chave": k, "Código": v.get("codigo"), "Produto": v.get("descricao"),
+                                      "NFs": ", ".join(v.get("nfs", [])), "Ocorrências": v.get("ocorrencias", 0)}
+                                     for k, v in abertos])
+            st.dataframe(exibicao, hide_index=True, use_container_width=True)
+            escolha = st.selectbox("Selecione o produto", range(len(abertos)),
+                                   format_func=lambda i: f"{abertos[i][1].get('codigo','')} — {abertos[i][1].get('descricao','')}")
+            key, item = abertos[escolha]
+            with st.form("classificar_admin"):
+                classe = st.radio("Classificação confirmada", ["NOR", "DG"], horizontal=True)
+                responsavel = st.text_input("Responsável pela análise", placeholder="Nome do responsável")
+                justificativa = st.text_area("Justificativa / referência da FDS", placeholder="Descreva a análise que fundamenta a classificação")
+                confirmar = st.form_submit_button("💾 Salvar classificação", type="primary")
+            if confirmar:
+                if not responsavel.strip() or not justificativa.strip():
+                    st.warning("Preencha responsável e justificativa/FDS antes de salvar.")
+                elif not banco_ok:
+                    st.error("Banco indisponível. Nenhuma classificação foi salva.")
+                else:
+                    def op(banco):
+                        banco["decisoes"][key] = {"codigo": item.get("codigo", ""),
+                            "descricao": item.get("descricao", ""), "classificacao": classe,
+                            "responsavel": responsavel.strip(), "justificativa": justificativa.strip(),
+                            "data_hora": agora()}
+                        return True
+                    try:
+                        atualizar_banco(op)
+                        st.success("Classificação salva no GitHub e disponível para próximas análises.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Falha ao salvar: " + str(e))
+        st.markdown("#### Classificações administrativas existentes")
+        if decisoes:
+            st.dataframe(pd.DataFrame(decisoes.values()), hide_index=True, use_container_width=True)
